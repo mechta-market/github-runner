@@ -1,0 +1,16 @@
+*.log
+*.tar
+*.tar.gz
+*.tar.bz2
+.idea
+go.work
+go.work.sum
+release/*
+build/
+*.pfx
+*.cert
+*.cer
+*.key
+*.csr
+.DS_Store
+todo

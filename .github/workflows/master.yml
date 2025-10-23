@@ -1,0 +1,20 @@
+name: Deploy
+on:
+  push:
+    branches:
+      - master
+jobs:
+  build:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    env:
+      OWNER: mechta-market
+      IMAGE: github-runner:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
+
+      - run: docker build -t ghcr.io/$OWNER/$IMAGE .
+
+      - run: docker push ghcr.io/$OWNER/$IMAGE
