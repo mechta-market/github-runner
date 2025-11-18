@@ -20,7 +20,7 @@ RUN apt-get update && \
       python3 python3-pip \
       && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && corepack enable \
     && rm -rf /var/lib/apt/lists/*
