@@ -33,8 +33,8 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
 
 # Ставим Go 1.25
 RUN wget https://go.dev/dl/go1.25.4.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.25.linux-amd64.tar.gz && \
-    rm go1.25.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go1.25.4.linux-amd64.tar.gz && \
+    rm go1.25.4.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH="/opt/go"
 ENV GOMODCACHE="/opt/go/pkg/mod"
