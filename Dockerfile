@@ -20,11 +20,6 @@ RUN apt-get update && \
       python3 python3-pip \
       && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y nodejs \
-    && corepack enable \
-    && rm -rf /var/lib/apt/lists/*
-
 # (Опционально) Установка Docker CLI — чтобы job мог собирать образы
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
     echo \
@@ -35,6 +30,20 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     apt-get update && \
     apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
+
+# Ставим Go 1.25
+RUN wget https://go.dev/dl/go1.25.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.25.linux-amd64.tar.gz && \
+    rm go1.25.linux-amd64.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/opt/go"
+ENV GOMODCACHE="/opt/go/pkg/mod"
+
+# Ставим Node 24
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y nodejs \
+    && corepack enable \
+    && rm -rf /var/lib/apt/lists/*
 
 # Добавляем пользователя runner в docker-группу (если докер сокет маунтится)
 RUN groupadd -f docker && usermod -aG docker runner
