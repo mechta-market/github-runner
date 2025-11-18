@@ -21,6 +21,8 @@ RUN apt-get update && \
       nodejs npm \
       && rm -rf /var/lib/apt/lists/*
 
+RUN corepack enable
+
 # (Опционально) Установка Docker CLI — чтобы job мог собирать образы
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
     echo \
