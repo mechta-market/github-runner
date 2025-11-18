@@ -18,10 +18,12 @@ RUN apt-get update && \
       sudo \
       build-essential \
       python3 python3-pip \
-      nodejs npm \
       && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && corepack enable \
+    && rm -rf /var/lib/apt/lists/*
 
 # (Опционально) Установка Docker CLI — чтобы job мог собирать образы
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
