@@ -36,8 +36,6 @@ RUN wget https://go.dev/dl/go1.25.4.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go1.25.4.linux-amd64.tar.gz && \
     rm go1.25.4.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
-ENV GOPATH="/opt/go"
-ENV GOMODCACHE="/opt/go/pkg/mod"
 
 # Ставим Node 24
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
