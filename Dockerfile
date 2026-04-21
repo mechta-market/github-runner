@@ -2,7 +2,7 @@ FROM ghcr.io/actions/actions-runner:latest
 
 USER root
 
-# Устанавливаем базовые утилиты и компиляторы
+# Базовые пакеты
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       apt-transport-https \
@@ -20,7 +20,7 @@ RUN apt-get update && \
       python3 python3-pip \
       && rm -rf /var/lib/apt/lists/*
 
-# (Опционально) Установка Docker CLI — чтобы job мог собирать образы
+# Docker CLI
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] \
@@ -31,19 +31,21 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
-# Ставим Go 1.25
+# Go
 RUN wget https://go.dev/dl/go1.26.0.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz && \
     rm go1.26.0.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Ставим Node 24
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y nodejs \
-    && corepack enable \
-    && rm -rf /var/lib/apt/lists/*
+# FNM
+ENV FNM_DIR="/usr/local/fnm"
+RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir $FNM_DIR
+ENV PATH="$FNM_DIR:$PATH"
 
-# Добавляем пользователя runner в docker-группу (если докер сокет маунтится)
+# Устанавливаем Node версии
+RUN bash -c "eval \"$(fnm env)\" && fnm install 22 && fnm default 22"
+
+# Docker group
 RUN groupadd -f docker && usermod -aG docker runner
 
 USER runner
