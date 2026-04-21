@@ -44,6 +44,7 @@ ENV PATH="$FNM_DIR:$PATH"
 
 # Устанавливаем Node версии
 RUN bash -c "eval \"$(fnm env)\" && fnm install 22 && fnm default 22"
+ENV PATH="/usr/local/fnm/aliases/default/bin:$PATH"
 
 # Docker group
 RUN groupadd -f docker && usermod -aG docker runner
