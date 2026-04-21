@@ -11,7 +11,7 @@ jobs:
       OWNER: mechta-market
       IMAGE: github-runner:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
 
