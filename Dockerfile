@@ -18,6 +18,7 @@ RUN apt-get update && \
       sudo \
       build-essential \
       python3 python3-pip \
+      libvips-dev \
       && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI
