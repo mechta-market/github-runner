@@ -46,6 +46,8 @@ ENV PATH="$FNM_DIR:$PATH"
 RUN bash -c "eval \"$(fnm env)\" && fnm install 22 && fnm default 22"
 ENV PATH="$FNM_DIR/aliases/default/bin:$PATH"
 
+RUN corepack enable
+
 RUN chown -R runner:runner $FNM_DIR
 
 # Docker group
