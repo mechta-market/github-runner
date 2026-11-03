@@ -8,6 +8,11 @@ on:
       - Dockerfile
       - .github/workflows/master.yml
       - .github/workflows/go-service.yml
+  # раз в неделю — свежие версия раннера GitHub и пакеты Ubuntu: слишком старый раннер
+  # GitHub перестаёт пускать к заданиям
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
 jobs:
   build:
     name: Build and publish
@@ -20,6 +25,8 @@ jobs:
 
       - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
 
-      - run: docker build -t ghcr.io/$OWNER/$IMAGE .
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: docker build --pull --secret id=github_token,env=GITHUB_TOKEN -t ghcr.io/$OWNER/$IMAGE .
 
       - run: docker push ghcr.io/$OWNER/$IMAGE
