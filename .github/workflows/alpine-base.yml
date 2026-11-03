@@ -1,0 +1,27 @@
+name: Alpine base
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - alpine-base/**
+      - .github/workflows/alpine-base.yml
+  # раз в неделю — свежие пакеты alpine
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+jobs:
+  build:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    env:
+      OWNER: mechta-market
+      IMAGE: alpine-base:latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
+
+      - run: docker build --pull -t ghcr.io/$OWNER/$IMAGE alpine-base
+
+      - run: docker push ghcr.io/$OWNER/$IMAGE
