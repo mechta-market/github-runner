@@ -1,0 +1,51 @@
+name: Go service
+
+# Общая сборка Go-сервиса на раннерах yc-arc: бинарник собирается на раннере (кэш Go в S3),
+# затем docker-образ уходит в ghcr.io/<owner>/. Вызов из репозитория сервиса:
+#
+#   jobs:
+#     build:
+#       uses: mechta-market/github-runner/.github/workflows/go-service.yml@master
+#       with:
+#         image: s3-get:latest
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Имя образа с тегом, без ghcr.io/<owner>/ (по умолчанию <имя репозитория>:latest)
+        type: string
+        default: ""
+      build:
+        description: Команда сборки бинарника на раннере
+        type: string
+        default: make
+
+jobs:
+  build:
+    name: Build and deploy
+    runs-on: yc-arc
+    steps:
+      - uses: actions/checkout@v6
+
+      # Go берётся из образа раннера; GOTOOLCHAIN=local — узнать его версию, не скачивая toolchain из go.mod
+      - run: echo "GOVERSION=$(GOTOOLCHAIN=local go env GOVERSION)" >> $GITHUB_ENV
+
+      - uses: runs-on/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ env.GOVERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: ${{ env.GOVERSION }}-
+
+      - run: ${{ inputs.build }}
+
+      - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
+
+      - env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/${IMAGE:-${GITHUB_REPOSITORY#*/}:latest}
+          docker build -t $IMAGE .
+          docker push $IMAGE
