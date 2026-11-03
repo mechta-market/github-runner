@@ -3,10 +3,11 @@ on:
   push:
     branches:
       - master
-    # go-service.yml — общий workflow для других репозиториев, образ раннера из-за него не пересобираем
+    # go-service.yml — в образ кладутся архивы его действий
     paths:
       - Dockerfile
       - .github/workflows/master.yml
+      - .github/workflows/go-service.yml
 jobs:
   build:
     name: Build and publish

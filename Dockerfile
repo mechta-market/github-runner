@@ -54,4 +54,16 @@ RUN chown -R runner:runner $FNM_DIR
 # Docker group
 RUN groupadd -f docker && usermod -aG docker runner
 
+# Архивы действий из go-service.yml (закреплены там по sha): раннер берёт их с диска, а не с GitHub
+ENV ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE=/opt/action-archive-cache
+COPY .github/workflows/go-service.yml /tmp/go-service.yml
+RUN grep -oE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}' /tmp/go-service.yml | sort -u | \
+    while IFS=@ read -r repo sha; do \
+      dir="$ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE/${repo%/*}_${repo#*/}" && \
+      mkdir -p "$dir" && \
+      curl -fsSL "https://api.github.com/repos/$repo/tarball/$sha" -o "$dir/$sha.tar.gz" || exit 1; \
+    done && \
+    rm /tmp/go-service.yml && \
+    find $ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE -name '*.tar.gz'
+
 USER runner

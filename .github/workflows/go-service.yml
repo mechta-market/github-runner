@@ -21,17 +21,19 @@ on:
         type: string
         default: make
 
+# Действия закреплены по sha: их архивы лежат в образе раннера (Dockerfile берёт sha отсюда),
+# и раннер не скачивает их с GitHub. Новая версия — сменить sha здесь, образ раннера пересоберётся сам.
 jobs:
   build:
     name: Build and deploy
     runs-on: yc-arc
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # Go берётся из образа раннера; GOTOOLCHAIN=local — узнать его версию, не скачивая toolchain из go.mod
       - run: echo "GOVERSION=$(GOTOOLCHAIN=local go env GOVERSION)" >> $GITHUB_ENV
 
-      - uses: runs-on/cache@v4
+      - uses: runs-on/cache@a5f51d6f3fece787d03b7b4e981c82538a0654ed # v4
         with:
           path: |
             ~/go/pkg/mod
