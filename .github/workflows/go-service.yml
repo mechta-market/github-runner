@@ -13,7 +13,7 @@ name: Go service
 # проверка перед сборкой (test: go vet ./... && go test ./...), выгрузка proto-контракта в
 # репозиторий protos (protos: nsi_v1 + secrets: protos-token: ${{ secrets.PROTOS_PAT }}),
 # Node для сборки фронта на раннере (node: 24 + build: make && make build-admin) — Dockerfile
-# тогда только копирует готовую статику.
+# тогда только копирует готовую статику; Dockerfile не в корне (dockerfile: docker/app.Dockerfile).
 
 on:
   workflow_call:
@@ -26,6 +26,10 @@ on:
         description: Команда сборки бинарника на раннере
         type: string
         default: make
+      dockerfile:
+        description: Путь к Dockerfile от корня репозитория; контекст сборки — всегда корень
+        type: string
+        default: Dockerfile
       test:
         description: Команда проверки перед сборкой, например go test ./... (пусто — без проверки)
         type: string
@@ -98,12 +102,13 @@ jobs:
 
       - env:
           IMAGE: ${{ inputs.image }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
         run: |
           images=""
           for i in ${IMAGE:-${GITHUB_REPOSITORY#*/}:latest}; do
             images="$images ghcr.io/${{ github.repository_owner }}/$i"
           done
-          docker build $(printf -- '-t %s ' $images) .
+          docker build -f "$DOCKERFILE" $(printf -- '-t %s ' $images) .
           for i in $images; do docker push $i; done
 
       # proto-контракт уходит в protos только из сервиса, который собрался и запушился
