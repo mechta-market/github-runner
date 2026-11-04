@@ -2,6 +2,7 @@ FROM ghcr.io/actions/actions-runner:latest
 
 ARG GO_VERSION=1.27.3
 ARG NODE_VERSION=22
+ARG COMPOSE_VERSION=5.6.1
 
 USER root
 
@@ -23,6 +24,14 @@ RUN apt-get update && \
       build-essential \
       python3 \
       && rm -rf /var/lib/apt/lists/*
+
+# Docker Compose: в базовом образе docker только с buildx. Раньше compose приезжал вместе с
+# docker-ce-cli из apt (рекомендуемый пакет docker-compose-plugin), теперь ставим плагином сами
+RUN dir=/usr/local/lib/docker/cli-plugins && \
+    url=https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-x86_64 && \
+    curl -fsSL "$url" -o $dir/docker-compose && \
+    echo "$(curl -fsSL "$url.sha256" | cut -d' ' -f1)  $dir/docker-compose" | sha256sum -c - && \
+    chmod +x $dir/docker-compose
 
 # Go
 RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xz
