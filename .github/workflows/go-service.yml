@@ -91,16 +91,22 @@ jobs:
             exit 1
           fi
           echo "$bin" >> $GITHUB_PATH
+          # хранилище pnpm — на том же томе, что и проект (_work — отдельный том, домашняя папка на
+          # другом, и pnpm сам ушёл бы в _work/.pnpm-store мимо кэша); pnpm 9–10 читают npm_config_*,
+          # pnpm 11 — pnpm_config_*
+          store="$(dirname "$RUNNER_WORKSPACE")/.pnpm-store"
+          echo "npm_config_store_dir=$store" >> $GITHUB_ENV
+          echo "pnpm_config_store_dir=$store" >> $GITHUB_ENV
 
       - if: inputs.node != ''
         uses: runs-on/cache@a5f51d6f3fece787d03b7b4e981c82538a0654ed # v4
         with:
           path: |
-            ~/.local/share/pnpm/store
+            ${{ env.pnpm_config_store_dir }}
             ~/.npm
             ~/.cache/node/corepack
-          key: node${{ inputs.node }}-${{ hashFiles('**/pnpm-lock.yaml', '**/package-lock.json', '**/yarn.lock') }}
-          restore-keys: node${{ inputs.node }}-
+          key: node${{ inputs.node }}-store-${{ hashFiles('**/pnpm-lock.yaml', '**/package-lock.json', '**/yarn.lock') }}
+          restore-keys: node${{ inputs.node }}-store-
 
       # проверка и сборка — до входа в ghcr: код тестов и зависимостей не видит токен записи в реестр
       - if: inputs.test != ''
