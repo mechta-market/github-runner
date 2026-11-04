@@ -14,8 +14,8 @@ name: Go service
 # репозиторий protos (protos: nsi_v1 + secrets: protos-token: ${{ secrets.PROTOS_PAT }}),
 # Node для сборки фронта на раннере (node: 24 + build: make && make build-admin) — Dockerfile
 # тогда только копирует готовую статику; Dockerfile не в корне (dockerfile: docker/app.Dockerfile),
-# аргументы сборки образа (build-args: GIT_SHA=${{ github.sha }}), удаление старых версий образа
-# без тега (keep-untagged: 10).
+# аргументы сборки образа (build-args: GIT_SHA=${{ github.sha }}), сколько старых версий образа
+# без тега оставить в ghcr (keep-untagged, по умолчанию 10; 0 — удалить все).
 
 on:
   workflow_call:
@@ -49,9 +49,9 @@ on:
         type: string
         default: ""
       keep-untagged:
-        description: Сколько последних версий образа без тега оставить после пуша, остальные удаляются (пусто — ничего не удалять)
+        description: Сколько последних версий образа без тега оставить после пуша, остальные удаляются; 0 — удалить все (части образов с тегом не трогаются никогда), пусто — ничего не удалять
         type: string
-        default: ""
+        default: "10"
     secrets:
       protos-token:
         description: Токен с правом записи в репозиторий protos (нужен вместе с protos)
@@ -157,13 +157,16 @@ jobs:
           fi
 
       # Пуш переносит тег на новый образ, а старый остаётся в ghcr без тега — такие версии копятся
-      # без конца. Последние keep-untagged остаются для отката по sha, остальные удаляются. Шаг
-      # последний: если удалить не вышло, образ и proto-контракт уже на месте.
+      # без конца. Последние keep-untagged остаются для отката по sha, остальные удаляются.
       # Образ с тегом — оглавление (index), его части (образ под платформу, запись о сборке) лежат
       # в пакете отдельными версиями без тега; их не трогаем, иначе образ с тегом перестанет скачиваться.
-      # GITHUB_TOKEN удаляет версии, только если у репозитория роль Admin на пакет
-      # (страница пакета → Package settings → Manage Actions access).
+      # Версии моложе часа тоже не трогаем: это может быть образ, который прямо сейчас пушит сборка
+      # другой ветки, а его оглавление с тегом ещё не появилось.
+      # Шаг последний и не роняет сборку: образ и proto-контракт к этому времени уже на месте, а
+      # недоудалённое доберёт следующая сборка. GITHUB_TOKEN удаляет версии, только если у репозитория
+      # роль Admin на пакет (страница пакета → Package settings → Manage Actions access).
       - if: inputs.keep-untagged != ''
+        continue-on-error: true
         env:
           IMAGE: ${{ inputs.image }}
           KEEP: ${{ inputs.keep-untagged }}
@@ -190,14 +193,19 @@ jobs:
               curl -fsS -H "Authorization: Bearer $reg" -H "$accept" "https://ghcr.io/v2/$OWNER/$pkg/manifests/$digest" \
                 | jq -r '.manifests[]?.digest' >> "$tmp/used"
             done
-            # без тега и не часть образа с тегом; новые первыми — KEEP самых свежих остаются
-            awk 'FILENAME == ARGV[1] {used[$1]; next} $4 == 0 && !($3 in used)' "$tmp/used" "$tmp/versions" \
+            # без тега, не часть образа с тегом и старше часа; новые первыми — KEEP самых свежих остаются
+            awk -v before="$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)" \
+              'FILENAME == ARGV[1] {used[$1]; next} $4 == 0 && !($3 in used) && $1 < before' "$tmp/used" "$tmp/versions" \
               | sort -r | tail -n +$((KEEP + 1)) | cut -d' ' -f2 > "$tmp/old"
             echo "$pkg: версий $(wc -l < "$tmp/versions"), частей образов с тегом $(wc -l < "$tmp/used"), удаляется $(wc -l < "$tmp/old")"
             for id in $(cat "$tmp/old"); do
-              curl -fsS -X DELETE -H "Authorization: Bearer $TOKEN" "$url/$id" || {
-                echo "::error::Не удалось удалить версию $id пакета $pkg: у репозитория нет роли Admin на пакет (Package settings → Manage Actions access)"
-                exit 1
-              }
+              code=$(curl -sS -o "$tmp/delete.json" -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOKEN" "$url/$id")
+              case $code in
+                204|404) ;;  # 404 — версию уже удалила параллельная сборка другой ветки
+                *)
+                  echo "::warning::Не удалось удалить версию $id пакета $pkg (HTTP $code: $(jq -r '.message // empty' "$tmp/delete.json" 2>/dev/null)). Нет роли Admin на пакет — дать в Package settings → Manage Actions access; лимит запросов GitHub — доудалит следующая сборка"
+                  exit 1
+                  ;;
+              esac
             done
           done
