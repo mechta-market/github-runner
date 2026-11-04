@@ -3,11 +3,12 @@ on:
   push:
     branches:
       - master
-    # go-service.yml — в образ кладутся архивы его действий
+    # go-service.yml и front.yml — в образ кладутся архивы их действий
     paths:
       - Dockerfile
       - .github/workflows/master.yml
       - .github/workflows/go-service.yml
+      - .github/workflows/front.yml
   # раз в неделю — свежие версия раннера GitHub и пакеты Ubuntu: слишком старый раннер
   # GitHub перестаёт пускать к заданиям
   schedule:

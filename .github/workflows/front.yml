@@ -1,0 +1,97 @@
+name: Front
+
+# Общая сборка фронта на раннерах yc-arc: статика собирается на раннере (Node из образа раннера,
+# зависимости — из кэша в S3), затем docker-образ (обычно nginx-base + dist) уходит в
+# ghcr.io/<owner>/. Вызов из репозитория фронта:
+#
+#   jobs:
+#     build:
+#       uses: mechta-market/github-runner/.github/workflows/front.yml@master
+#       with:
+#         image: airo-front:dev
+#         node: "22"
+#         build: pnpm install --frozen-lockfile && pnpm build-only --mode development
+#
+# pnpm и yarn — той версии, что записана в packageManager у package.json (через corepack).
+# Проверки (lint, typecheck) — частью build: pnpm install ... && pnpm lint && pnpm build.
+# Необязательное: несколько имён образа через пробел, Dockerfile не в корне
+# (dockerfile: docker/app.Dockerfile), аргументы сборки образа (build-args: GIT_SHA=${{ github.sha }}).
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Имя образа с тегом, без ghcr.io/<owner>/ (по умолчанию <имя репозитория>:latest). Несколько — через пробел, образ собирается один раз
+        type: string
+        default: ""
+      node:
+        description: Версия Node из образа раннера (20, 22, 24)
+        type: string
+        required: true
+      build:
+        description: Команда сборки статики на раннере, вместе с установкой зависимостей
+        type: string
+        default: pnpm install --frozen-lockfile && pnpm build
+      dockerfile:
+        description: Путь к Dockerfile от корня репозитория; контекст сборки — всегда корень
+        type: string
+        default: Dockerfile
+      build-args:
+        description: Аргументы docker build через пробел, KEY=VALUE (значения без пробелов), например GIT_SHA=<коммит> (в вызове — выражение github.sha)
+        type: string
+        default: ""
+
+# Действия закреплены по sha: их архивы лежат в образе раннера (Dockerfile берёт sha отсюда),
+# и раннер не скачивает их с GitHub. Новая версия — сменить sha здесь, образ раннера пересоберётся сам.
+jobs:
+  build:
+    name: Build and deploy
+    runs-on: yc-arc
+    steps:
+      # токен задания не остаётся в .git/config, где его прочли бы сборка и зависимости
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      # нужная версия Node — первой в PATH
+      - env:
+          NODE: ${{ inputs.node }}
+        run: |
+          bin="$FNM_DIR/aliases/$NODE/bin"
+          if [ ! -x "$bin/node" ]; then
+            echo "::error::Node $NODE нет в образе раннера, есть: $(ls $FNM_DIR/aliases | grep -vx default | xargs)"
+            exit 1
+          fi
+          echo "$bin" >> $GITHUB_PATH
+
+      # хранилище pnpm, кэш npm и yarn, скачанный corepack-ом pnpm — в S3
+      - uses: runs-on/cache@a5f51d6f3fece787d03b7b4e981c82538a0654ed # v4
+        with:
+          path: |
+            ~/.local/share/pnpm/store
+            ~/.npm
+            ~/.cache/yarn
+            ~/.cache/node/corepack
+          key: node${{ inputs.node }}-${{ hashFiles('**/pnpm-lock.yaml', '**/package-lock.json', '**/yarn.lock') }}
+          restore-keys: node${{ inputs.node }}-
+
+      # сборка — до входа в ghcr: код зависимостей не видит токен записи в реестр
+      - run: ${{ inputs.build }}
+
+      - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
+
+      - env:
+          IMAGE: ${{ inputs.image }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+        run: |
+          images=""
+          for i in ${IMAGE:-${GITHUB_REPOSITORY#*/}:latest}; do
+            images="$images ghcr.io/${{ github.repository_owner }}/$i"
+          done
+          args=""
+          for a in $BUILD_ARGS; do
+            args="$args --build-arg $a"
+          done
+          docker build -f "$DOCKERFILE" $args $(printf -- '-t %s ' $images) .
+          for i in $images; do docker push $i; done

@@ -1,7 +1,7 @@
 FROM ghcr.io/actions/actions-runner:latest
 
 ARG GO_VERSION=1.27.3
-ARG NODE_VERSIONS="22 24"
+ARG NODE_VERSIONS="22 24 20"
 ARG COMPOSE_VERSION=5.6.1
 
 USER root
@@ -38,9 +38,10 @@ RUN dir=/usr/local/lib/docker/cli-plugins && \
 RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Node через fnm: каждая версия лежит под своим именем в $FNM_DIR/aliases/<версия> (go-service.yml
-# ставит её первой в PATH по input node), первая из списка — по умолчанию. corepack в каждой версии
-# даёт pnpm/yarn той версии, что записана в packageManager у package.json.
+# Node через fnm: каждая версия лежит под своим именем в $FNM_DIR/aliases/<версия> (go-service.yml и
+# front.yml ставят её первой в PATH по input node), первая из списка — по умолчанию; 20 — для фронтов,
+# которые ещё не перешли на 22. corepack в каждой версии даёт pnpm/yarn той версии, что записана
+# в packageManager у package.json.
 # chown — в том же слое: отдельным RUN папка fnm легла бы в образ второй копией
 ENV FNM_DIR="/usr/local/fnm"
 ENV PATH="$FNM_DIR/aliases/default/bin:$FNM_DIR:$PATH"
@@ -54,20 +55,21 @@ RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir $FNM_DI
       fnm default ${NODE_VERSIONS%% *}" && \
     chown -R runner:runner $FNM_DIR
 
-# Архивы действий из go-service.yml (закреплены там по sha): раннер берёт их с диска, а не с GitHub.
+# Архивы действий из go-service.yml и front.yml (закреплены там по sha): раннер берёт их с диска,
+# а не с GitHub.
 # Токен (секрет github_token, если передан) — чтобы не упереться в лимит анонимных запросов к API.
 ENV ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE=/opt/action-archive-cache
-COPY .github/workflows/go-service.yml /tmp/go-service.yml
+COPY .github/workflows/go-service.yml .github/workflows/front.yml /tmp/workflows/
 RUN --mount=type=secret,id=github_token \
     TOKEN=$(cat /run/secrets/github_token 2>/dev/null || true) && \
-    grep -oE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}' /tmp/go-service.yml | sort -u | \
+    grep -hoE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}' /tmp/workflows/*.yml | sort -u | \
     while IFS=@ read -r repo sha; do \
       dir="$ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE/${repo%/*}_${repo#*/}" && \
       mkdir -p "$dir" && \
       curl -fsSL ${TOKEN:+-H "Authorization: Bearer $TOKEN"} \
         "https://api.github.com/repos/$repo/tarball/$sha" -o "$dir/$sha.tar.gz" || exit 1; \
     done && \
-    rm /tmp/go-service.yml && \
+    rm -r /tmp/workflows && \
     find $ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE -name '*.tar.gz'
 
 USER runner
