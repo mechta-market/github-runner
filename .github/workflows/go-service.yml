@@ -11,7 +11,9 @@ name: Go service
 #
 # Необязательное: несколько имён образа через пробел (image: "price_tags:master price_tags:latest"),
 # проверка перед сборкой (test: go vet ./... && go test ./...), выгрузка proto-контракта в
-# репозиторий protos (protos: nsi_v1 + secrets: protos-token: ${{ secrets.PROTOS_PAT }}).
+# репозиторий protos (protos: nsi_v1 + secrets: protos-token: ${{ secrets.PROTOS_PAT }}),
+# Node для сборки фронта на раннере (node: 24 + build: make && make build-admin) — Dockerfile
+# тогда только копирует готовую статику.
 
 on:
   workflow_call:
@@ -26,6 +28,10 @@ on:
         default: make
       test:
         description: Команда проверки перед сборкой, например go test ./... (пусто — без проверки)
+        type: string
+        default: ""
+      node:
+        description: Версия Node из образа раннера (22, 24) для сборки фронта в build/test; pnpm и yarn — по packageManager из package.json (пусто — без Node)
         type: string
         default: ""
       protos:
@@ -59,6 +65,28 @@ jobs:
             ~/.cache/go-build
           key: ${{ env.GOVERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: ${{ env.GOVERSION }}-
+
+      # нужная версия Node — первой в PATH; хранилище pnpm, кэш npm и скачанный corepack-ом pnpm — в S3
+      - if: inputs.node != ''
+        env:
+          NODE: ${{ inputs.node }}
+        run: |
+          bin="$FNM_DIR/aliases/$NODE/bin"
+          if [ ! -x "$bin/node" ]; then
+            echo "::error::Node $NODE нет в образе раннера, есть: $(ls $FNM_DIR/aliases | grep -vx default | xargs)"
+            exit 1
+          fi
+          echo "$bin" >> $GITHUB_PATH
+
+      - if: inputs.node != ''
+        uses: runs-on/cache@a5f51d6f3fece787d03b7b4e981c82538a0654ed # v4
+        with:
+          path: |
+            ~/.local/share/pnpm/store
+            ~/.npm
+            ~/.cache/node/corepack
+          key: node${{ inputs.node }}-${{ hashFiles('**/pnpm-lock.yaml', '**/package-lock.json', '**/yarn.lock') }}
+          restore-keys: node${{ inputs.node }}-
 
       # проверка и сборка — до входа в ghcr: код тестов и зависимостей не видит токен записи в реестр
       - if: inputs.test != ''

@@ -1,14 +1,14 @@
 FROM ghcr.io/actions/actions-runner:latest
 
 ARG GO_VERSION=1.27.3
-ARG NODE_VERSION=22
+ARG NODE_VERSIONS="22 24"
 ARG COMPOSE_VERSION=5.6.1
 
 USER root
 
 # Базовые пакеты. Docker CLI с buildx, группа docker, curl, git, jq, unzip и python3 уже есть
 # в базовом образе. build-essential — сборка с CGO (esign) и нативных модулей node-gyp,
-# zip — showcase_wails_app.
+# zip — showcase_wails_app, zstd — быстрое сжатие кэша (runs-on/cache берёт его вместо gzip).
 # libvips-dev не ставим: sharp у mechta-site тогда скачивает свою готовую libvips, а не
 # собирается из исходников против системной (~80 с на каждую сборку сайта).
 RUN apt-get update && \
@@ -20,6 +20,7 @@ RUN apt-get update && \
       unzip \
       zip \
       jq \
+      zstd \
       sudo \
       build-essential \
       python3 \
@@ -37,12 +38,20 @@ RUN dir=/usr/local/lib/docker/cli-plugins && \
 RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Node через fnm. chown — в том же слое: отдельным RUN папка fnm легла бы в образ второй копией
+# Node через fnm: каждая версия лежит под своим именем в $FNM_DIR/aliases/<версия> (go-service.yml
+# ставит её первой в PATH по input node), первая из списка — по умолчанию. corepack в каждой версии
+# даёт pnpm/yarn той версии, что записана в packageManager у package.json.
+# chown — в том же слое: отдельным RUN папка fnm легла бы в образ второй копией
 ENV FNM_DIR="/usr/local/fnm"
 ENV PATH="$FNM_DIR/aliases/default/bin:$FNM_DIR:$PATH"
-RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir $FNM_DIR && \
-    bash -c "eval \"\$(fnm env)\" && fnm install $NODE_VERSION && fnm default $NODE_VERSION" && \
-    corepack enable && \
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir $FNM_DIR --skip-shell && \
+    bash -c "eval \"\$(fnm env)\" && \
+      for v in $NODE_VERSIONS; do \
+        fnm install \$v && fnm alias \$v \$v && \
+        PATH=$FNM_DIR/aliases/\$v/bin:\$PATH corepack enable || exit 1; \
+      done && \
+      fnm default ${NODE_VERSIONS%% *}" && \
     chown -R runner:runner $FNM_DIR
 
 # Архивы действий из go-service.yml (закреплены там по sha): раннер берёт их с диска, а не с GitHub.
