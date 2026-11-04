@@ -8,18 +8,34 @@ name: Go service
 #       uses: mechta-market/github-runner/.github/workflows/go-service.yml@master
 #       with:
 #         image: s3-get:latest
+#
+# Необязательное: несколько имён образа через пробел (image: "price_tags:master price_tags:latest"),
+# проверка перед сборкой (test: go vet ./... && go test ./...), выгрузка proto-контракта в
+# репозиторий protos (protos: nsi_v1 + secrets: protos-token: ${{ secrets.PROTOS_PAT }}).
 
 on:
   workflow_call:
     inputs:
       image:
-        description: Имя образа с тегом, без ghcr.io/<owner>/ (по умолчанию <имя репозитория>:latest)
+        description: Имя образа с тегом, без ghcr.io/<owner>/ (по умолчанию <имя репозитория>:latest). Несколько — через пробел, образ собирается один раз
         type: string
         default: ""
       build:
         description: Команда сборки бинарника на раннере
         type: string
         default: make
+      test:
+        description: Команда проверки перед сборкой, например go test ./... (пусто — без проверки)
+        type: string
+        default: ""
+      protos:
+        description: Каталог api/proto/<protos>, который после пуша образа копируется в репозиторий protos (пусто — не копировать)
+        type: string
+        default: ""
+    secrets:
+      protos-token:
+        description: Токен с правом записи в репозиторий protos (нужен вместе с protos)
+        required: false
 
 # Действия закреплены по sha: их архивы лежат в образе раннера (Dockerfile берёт sha отсюда),
 # и раннер не скачивает их с GitHub. Новая версия — сменить sha здесь, образ раннера пересоберётся сам.
@@ -28,7 +44,10 @@ jobs:
     name: Build and deploy
     runs-on: yc-arc
     steps:
+      # токен задания не остаётся в .git/config, где его прочли бы тесты и сборка
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # Go берётся из образа раннера; GOTOOLCHAIN=local — узнать его версию, не скачивая toolchain из go.mod
       - run: echo "GOVERSION=$(GOTOOLCHAIN=local go env GOVERSION)" >> $GITHUB_ENV
@@ -41,6 +60,10 @@ jobs:
           key: ${{ env.GOVERSION }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: ${{ env.GOVERSION }}-
 
+      # проверка и сборка — до входа в ghcr: код тестов и зависимостей не видит токен записи в реестр
+      - if: inputs.test != ''
+        run: ${{ inputs.test }}
+
       - run: ${{ inputs.build }}
 
       - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
@@ -48,6 +71,33 @@ jobs:
       - env:
           IMAGE: ${{ inputs.image }}
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/${IMAGE:-${GITHUB_REPOSITORY#*/}:latest}
-          docker build -t $IMAGE .
-          docker push $IMAGE
+          images=""
+          for i in ${IMAGE:-${GITHUB_REPOSITORY#*/}:latest}; do
+            images="$images ghcr.io/${{ github.repository_owner }}/$i"
+          done
+          docker build $(printf -- '-t %s ' $images) .
+          for i in $images; do docker push $i; done
+
+      # proto-контракт уходит в protos только из сервиса, который собрался и запушился
+      - if: inputs.protos != ''
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ github.repository_owner }}/protos
+          token: ${{ secrets.protos-token }}
+          path: protos
+          fetch-depth: 1
+
+      - if: inputs.protos != ''
+        env:
+          PROTOS: ${{ inputs.protos }}
+        run: |
+          mkdir -p "protos/$PROTOS"
+          cp -a "api/proto/$PROTOS/." "protos/$PROTOS/"
+          cd protos
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.email "github-action@github.com"
+            git config user.name "github-actions"
+            git add .
+            git commit -m "update ${GITHUB_REPOSITORY#*/}"
+            git push
+          fi
