@@ -13,7 +13,8 @@ name: Go service
 # проверка перед сборкой (test: go vet ./... && go test ./...), выгрузка proto-контракта в
 # репозиторий protos (protos: nsi_v1 + secrets: protos-token: ${{ secrets.PROTOS_PAT }}),
 # Node для сборки фронта на раннере (node: 24 + build: make && make build-admin) — Dockerfile
-# тогда только копирует готовую статику; Dockerfile не в корне (dockerfile: docker/app.Dockerfile).
+# тогда только копирует готовую статику; Dockerfile не в корне (dockerfile: docker/app.Dockerfile),
+# аргументы сборки образа (build-args: GIT_SHA=${{ github.sha }}).
 
 on:
   workflow_call:
@@ -30,6 +31,10 @@ on:
         description: Путь к Dockerfile от корня репозитория; контекст сборки — всегда корень
         type: string
         default: Dockerfile
+      build-args:
+        description: Аргументы docker build через пробел, KEY=VALUE (значения без пробелов), например GIT_SHA=<коммит> (в вызове — выражение github.sha)
+        type: string
+        default: ""
       test:
         description: Команда проверки перед сборкой, например go test ./... (пусто — без проверки)
         type: string
@@ -103,12 +108,17 @@ jobs:
       - env:
           IMAGE: ${{ inputs.image }}
           DOCKERFILE: ${{ inputs.dockerfile }}
+          BUILD_ARGS: ${{ inputs.build-args }}
         run: |
           images=""
           for i in ${IMAGE:-${GITHUB_REPOSITORY#*/}:latest}; do
             images="$images ghcr.io/${{ github.repository_owner }}/$i"
           done
-          docker build -f "$DOCKERFILE" $(printf -- '-t %s ' $images) .
+          args=""
+          for a in $BUILD_ARGS; do
+            args="$args --build-arg $a"
+          done
+          docker build -f "$DOCKERFILE" $args $(printf -- '-t %s ' $images) .
           for i in $images; do docker push $i; done
 
       # proto-контракт уходит в protos только из сервиса, который собрался и запушился
