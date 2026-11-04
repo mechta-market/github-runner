@@ -14,8 +14,7 @@ name: Go service
 # репозиторий protos (protos: nsi_v1 + secrets: protos-token: ${{ secrets.PROTOS_PAT }}),
 # Node для сборки фронта на раннере (node: 24 + build: make && make build-admin) — Dockerfile
 # тогда только копирует готовую статику; Dockerfile не в корне (dockerfile: docker/app.Dockerfile),
-# аргументы сборки образа (build-args: GIT_SHA=${{ github.sha }}), сколько старых версий образа
-# без тега оставить в ghcr (keep-untagged, по умолчанию 10; 0 — удалить все).
+# аргументы сборки образа (build-args: GIT_SHA=${{ github.sha }}).
 
 on:
   workflow_call:
@@ -48,10 +47,6 @@ on:
         description: Каталог api/proto/<protos>, который после пуша образа копируется в репозиторий protos (пусто — не копировать)
         type: string
         default: ""
-      keep-untagged:
-        description: Сколько последних версий образа без тега оставить после пуша, остальные удаляются; 0 — удалить все (части образов с тегом не трогаются никогда), пусто — ничего не удалять
-        type: string
-        default: "10"
     secrets:
       protos-token:
         description: Токен с правом записи в репозиторий protos (нужен вместе с protos)
@@ -155,57 +150,3 @@ jobs:
             git commit -m "update ${GITHUB_REPOSITORY#*/}"
             git push
           fi
-
-      # Пуш переносит тег на новый образ, а старый остаётся в ghcr без тега — такие версии копятся
-      # без конца. Последние keep-untagged остаются для отката по sha, остальные удаляются.
-      # Образ с тегом — оглавление (index), его части (образ под платформу, запись о сборке) лежат
-      # в пакете отдельными версиями без тега; их не трогаем, иначе образ с тегом перестанет скачиваться.
-      # Версии моложе часа тоже не трогаем: это может быть образ, который прямо сейчас пушит сборка
-      # другой ветки, а его оглавление с тегом ещё не появилось.
-      # Шаг последний и не роняет сборку: образ и proto-контракт к этому времени уже на месте, а
-      # недоудалённое доберёт следующая сборка. GITHUB_TOKEN удаляет версии, только если у репозитория
-      # роль Admin на пакет (страница пакета → Package settings → Manage Actions access).
-      - if: inputs.keep-untagged != ''
-        continue-on-error: true
-        env:
-          IMAGE: ${{ inputs.image }}
-          KEEP: ${{ inputs.keep-untagged }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}
-        run: |
-          api="https://api.github.com/orgs/$OWNER/packages/container"
-          accept="Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
-          tmp="$RUNNER_TEMP/untagged"
-          mkdir -p "$tmp"
-          for pkg in $(for i in ${IMAGE:-${GITHUB_REPOSITORY#*/}:latest}; do echo "${i%%:*}"; done | sort -u); do
-            url="$api/${pkg//\//%2F}/versions"
-            # версии пакета строками: дата id digest число-тегов
-            : > "$tmp/versions"
-            for page in $(seq 1 100); do
-              curl -fsS -H "Authorization: Bearer $TOKEN" -o "$tmp/page.json" "$url?per_page=100&page=$page"
-              [ "$(jq length "$tmp/page.json")" = 0 ] && break
-              jq -r '.[] | "\(.created_at) \(.id) \(.name) \(.metadata.container.tags | length)"' "$tmp/page.json" >> "$tmp/versions"
-            done
-            # части образов с тегом — из их оглавлений в реестре
-            reg=$(curl -fsS -u "$GITHUB_ACTOR:$TOKEN" "https://ghcr.io/token?service=ghcr.io&scope=repository:$OWNER/$pkg:pull" | jq -r .token)
-            : > "$tmp/used"
-            for digest in $(awk '$4 > 0 {print $3}' "$tmp/versions"); do
-              curl -fsS -H "Authorization: Bearer $reg" -H "$accept" "https://ghcr.io/v2/$OWNER/$pkg/manifests/$digest" \
-                | jq -r '.manifests[]?.digest' >> "$tmp/used"
-            done
-            # без тега, не часть образа с тегом и старше часа; новые первыми — KEEP самых свежих остаются
-            awk -v before="$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)" \
-              'FILENAME == ARGV[1] {used[$1]; next} $4 == 0 && !($3 in used) && $1 < before' "$tmp/used" "$tmp/versions" \
-              | sort -r | tail -n +$((KEEP + 1)) | cut -d' ' -f2 > "$tmp/old"
-            echo "$pkg: версий $(wc -l < "$tmp/versions"), частей образов с тегом $(wc -l < "$tmp/used"), удаляется $(wc -l < "$tmp/old")"
-            for id in $(cat "$tmp/old"); do
-              code=$(curl -sS -o "$tmp/delete.json" -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOKEN" "$url/$id")
-              case $code in
-                204|404) ;;  # 404 — версию уже удалила параллельная сборка другой ветки
-                *)
-                  echo "::warning::Не удалось удалить версию $id пакета $pkg (HTTP $code: $(jq -r '.message // empty' "$tmp/delete.json" 2>/dev/null)). Нет роли Admin на пакет — дать в Package settings → Manage Actions access; лимит запросов GitHub — доудалит следующая сборка"
-                  exit 1
-                  ;;
-              esac
-            done
-          done
