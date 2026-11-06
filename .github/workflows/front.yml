@@ -16,6 +16,9 @@ name: Front
 # Проверки (lint, typecheck) — частью build: pnpm install ... && pnpm lint && pnpm build.
 # Необязательное: несколько имён образа через пробел, Dockerfile не в корне
 # (dockerfile: docker/app.Dockerfile), аргументы сборки образа (build-args: GIT_SHA=${{ github.sha }}).
+# Заливка карт исходников в трекер ошибок (zorko / Sentry, @sentry/vite-plugin): токен CI —
+# секретом SENTRY_AUTH_TOKEN в вызове (secrets: SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}),
+# он попадает в окружение команды build. Нет секрета — переменная пустая, сборка как раньше.
 
 on:
   workflow_call:
@@ -40,6 +43,10 @@ on:
         description: Аргументы docker build через пробел, KEY=VALUE (значения без пробелов), например GIT_SHA=<коммит> (в вызове — выражение github.sha)
         type: string
         default: ""
+    secrets:
+      SENTRY_AUTH_TOKEN:
+        description: Токен CI трекера ошибок (zorko / Sentry) — для заливки карт исходников при сборке
+        required: false
 
 # Действия закреплены по sha: их архивы лежат в образе раннера (Dockerfile берёт sha отсюда),
 # и раннер не скачивает их с GitHub. Новая версия — сменить sha здесь, образ раннера пересоберётся сам.
@@ -81,8 +88,11 @@ jobs:
           key: node${{ inputs.node }}-store-${{ hashFiles('**/pnpm-lock.yaml', '**/package-lock.json', '**/yarn.lock') }}
           restore-keys: node${{ inputs.node }}-store-
 
-      # сборка — до входа в ghcr: код зависимостей не видит токен записи в реестр
-      - run: ${{ inputs.build }}
+      # сборка — до входа в ghcr: код зависимостей не видит токен записи в реестр. Токен трекера
+      # ошибок сборка видит намеренно: им плагин сборщика заливает карты исходников
+      - env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: ${{ inputs.build }}
 
       - run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $ --password-stdin
 
